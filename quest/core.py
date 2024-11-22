@@ -3,6 +3,7 @@ import dataclasses
 from typing import *
 
 import numpy as np
+import torch
 from scipy.stats import bernoulli
 from tqdm import tqdm
 
@@ -51,6 +52,9 @@ class Quest:
         index: List[
             int
         ]  # The index of the current state
+        past_key_values: List[
+            List[List[torch.Tensor]]
+        ] = None  # The saved key value tensors (B x L x (2) x num_heads x seq_len x embedding_dim)
         t: int = 0  # The current time step
 
         def to_json(self):
@@ -94,6 +98,10 @@ class Quest:
                     self.index[i]
                     for i in relevant_chains
                 ],
+                past_key_values=[
+                    [[layer[0].detach().clone(), layer[1].detach().clone()] for layer in self.past_key_values[i]]
+                    for i in relevant_chains
+                ]
             )
 
         def paste_relevant(
@@ -123,6 +131,9 @@ class Quest:
                 )
                 new_state.index[chain] = (
                     additions.index[i]
+                )
+                new_state.past_key_values[chain] = (
+                    additions.past_key_values[i]
                 )
 
             new_state.t = additions.t

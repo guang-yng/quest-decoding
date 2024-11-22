@@ -54,7 +54,7 @@ class LLMProposal(Quest.Proposal):
         """
 
         # Generate the initial completion and transition scores
-        completions, transition_scores = (
+        completions, transition_scores, past_key_values = (
             self.model.continuation(
                 prompt,
                 prefix=None,
@@ -74,6 +74,7 @@ class LLMProposal(Quest.Proposal):
             completion=completions,
             text=completions_text,
             index=[0] * len(completions),
+            past_key_values=past_key_values,
         )
 
         return state
@@ -165,6 +166,11 @@ class LLMProposal(Quest.Proposal):
                 else None
             ),
             t=proposal_state.t,
+            past_key_values=join_accepted_values(
+                accept, 
+                proposal_state.past_key_values, 
+                previous_state.past_key_values
+            )
         )
 
         return state
@@ -301,12 +307,22 @@ class SuffixProposal(LLMProposal):
             )
         ]
 
+        past_key_values = [
+            [
+                [layer[u][:, :(index+len(prompt[idx]))] for u in range(2)]
+                for layer in previous_state.past_key_values[idx]
+            ]
+            for idx, index in enumerate(indeces)
+        ]
+
         (
             continuation_proposal,
             continuation_transition_scores,
+            past_key_values
         ) = self.model.continuation(
             prompt,
             prefix,
+            past_key_values = past_key_values
         )  ## add mask here -
 
         proposal = list(
@@ -341,6 +357,7 @@ class SuffixProposal(LLMProposal):
             text=proposal_text,
             index=indeces,
             t=previous_state.t + 1,
+            past_key_values=past_key_values,
         )
 
         return proposal_state

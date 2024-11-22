@@ -26,6 +26,9 @@ import numpy as np
 
 from typing import List
 
+from transformers.cache_utils import DynamicCache
+from transformers import GenerationConfig
+
 DEFAULT_TEMPLATE = (
     PromptTemplate.from_template("{prompt}")
 )
@@ -104,10 +107,16 @@ class HF(LocalLanguageModel):
             torch_dtype=dtype,
             device_map=self.device_map,
             pad_token_id=self.tokenizer.pad_token_id,
-            cache_dir=download_dir,
+            # cache_dir=download_dir, # TODO: set cache_dir
             use_flash_attention_2=use_flash_attention_2,
             # load_in_8bit=True
         )
+        # self.generation_config = GenerationConfig(
+        #     max_length = 100, # TODO: set max generation length
+        #     num_beams = 1, # TODO: no need to use beam search?
+        #     output_scores = True,
+        #     return_dict_in_generate = True,
+        # )
         # self.model.to_bettertransformer()
 
         # self.tokenizer = LlamaTokenizer.from_pretrained(
@@ -157,12 +166,26 @@ class HF(LocalLanguageModel):
         prompt,
         prefix=None,
         prompt_key_values=None,  # assume o
+        past_key_values=None,
     ):
+        # input_ids = torch.tensor(prompt if prefix is None else [p + pr for p, pr in zip(prompt, prefix)], device=self.device_map) ## TODO: fix device_map
+        # outputs = self.model.generate(
+        #     inputs = input_ids,
+        #     generation_config = self.generation_config,
+        # )
+        # transition_scores = self.model.compute_transition_scores(outputs['sequences'], outputs['scores']).tolist()
+        # completions = [s[len(inp):] for s, inp in zip(outputs['sequences'].tolist(), input_ids)]
+        # breakpoint()
+        # return (
+        #     completions,
+        #     transition_scores
+        # )
 
         if prefix is None:
             (
                 completions,
                 transition_scores,
+                past_key_values,
             ) = self.ancestral(
                 prompt,
                 past_key_values=prompt_key_values,
@@ -177,6 +200,7 @@ class HF(LocalLanguageModel):
             (
                 completions,
                 transition_scores,
+                past_key_values,
             ) = self.ancestral(
                 prompt=[
                     p + pr
@@ -184,11 +208,13 @@ class HF(LocalLanguageModel):
                         prompt, prefix
                     )
                 ],
+                past_key_values=past_key_values,
             )
 
         return (
             completions,
             transition_scores,
+            past_key_values,
         )
 
     @torch.no_grad()
@@ -201,6 +227,20 @@ class HF(LocalLanguageModel):
         generated_ids, attention_mask = (
             self.prepare_inputs(prompt)
         )
+        padding_length = attention_mask.shape[1] - attention_mask.sum(dim=1)
+        if past_key_values is not None:
+            new_past_key_values = []
+            for layer_id in range(len(past_key_values[0])):
+                new_layer = [[], []]
+                for idx in range(len(padding_length)):
+                    for u in range(2):
+                        tsr = past_key_values[idx][layer_id][u]
+                        newl = padding_length[idx] + tsr.shape[1]
+                        new_tsr = torch.zeros(tsr.shape[0], newl, tsr.shape[2], dtype=tsr.dtype, device=generated_ids.device)
+                        new_tsr[:, padding_length[idx]:, :] = tsr
+                        new_layer[u].append(new_tsr)
+                new_past_key_values.append(tuple(torch.stack(new_layer[u]) for u in range(2)))
+            past_key_values = tuple(new_past_key_values)
 
         batch, T = generated_ids.size()
 
@@ -357,6 +397,10 @@ class HF(LocalLanguageModel):
             .cpu()
             .tolist()
         )
+        past_key_values = [
+            [[layer[u][idx, :, padding_length[idx]:].cpu() for u in range(2)] for layer in past_key_values]
+            for idx in range(batch)
+        ]
 
         # transition_scores = torch.stack(
         #    transition_scores, dim=1
@@ -407,6 +451,7 @@ class HF(LocalLanguageModel):
         return (
             generated_ids,
             chopped_logits,
+            past_key_values,
             # generated_transition.cpu().tolist(),
         )
 
