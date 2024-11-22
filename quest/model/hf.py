@@ -220,12 +220,20 @@ class HF(LocalLanguageModel):
             # Forward pass with the model
 
             # print("s:", generated_ids)
+            position_ids = torch.zeros_like(attention_mask)
+            position_ids[:, 1:] = torch.cumsum(attention_mask, dim=1)[:, :-1]
             outputs = self.model(
                 input_ids=(
                     generated_ids[:, -1:]
                     if past_key_values
                     is not None
                     else generated_ids
+                ),
+                position_ids=(
+                    position_ids[:, -1:]
+                    if past_key_values
+                    is not None
+                    else position_ids
                 ),
                 attention_mask=attention_mask,
                 past_key_values=past_key_values,
@@ -339,9 +347,9 @@ class HF(LocalLanguageModel):
             if finished_sequences.all():
                 break
 
-        import pdb
+        # import pdb
 
-        pdb.set_trace()
+        # pdb.set_trace()
 
         # prompt_tokens = generated_ids[:, :T]
         generated_ids = (
@@ -476,9 +484,9 @@ class HF(LocalLanguageModel):
             completion_text
         )
 
-        import pdb
+        # import pdb
 
-        pdb.set_trace()
+        # pdb.set_trace()
 
         completion_ids = (
             self.tokenizer.encode(
@@ -547,9 +555,9 @@ if __name__ == "__main__":
 
     prompt = model.encode(data_iterable)
 
-    import pdb
+    # import pdb
 
-    pdb.set_trace()
+    # pdb.set_trace()
     prompt_kv = model.get_starting_cache(
         prompt
     )
@@ -571,9 +579,9 @@ if __name__ == "__main__":
     outputs.logits,
     attention_mask,
     """
-    import pdb
+    # import pdb
 
-    pdb.set_trace()
+    # pdb.set_trace()
 
     completions, transition_scores_ = (
         model.continuation(
@@ -588,9 +596,9 @@ if __name__ == "__main__":
         prompt_key_values=None,  # assume o
     )"""
 
-    import pdb
+    # import pdb
 
-    pdb.set_trace()
+    # pdb.set_trace()
 
     generated, generated_logits = (
         model.ancestral(
@@ -599,6 +607,6 @@ if __name__ == "__main__":
         )
     )
 
-    import pdb
+    # import pdb
 
-    pdb.set_trace()
+    # pdb.set_trace()
